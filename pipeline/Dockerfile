@@ -9,4 +9,5 @@ COPY pipeline/runner.py .
 COPY tests/ /app/tests/
 COPY docker-compose.yml .
 
+
 CMD ["python", "runner.py", "serve"]
