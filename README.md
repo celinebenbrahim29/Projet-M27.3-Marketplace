@@ -385,4 +385,4 @@ L'architecture est conçue pour être évolutive et pour faciliter l'ajout de no
 
 **Projet académique — Data Engineering, Data Warehouse & Business Intelligence**
 
-**Auteur : Groupe 1**
+**Auteur : Groupe 1 : Ben Brahim Céline / Bahroun Yasmine / Gaaya Aziz / Bouzid Fatma**

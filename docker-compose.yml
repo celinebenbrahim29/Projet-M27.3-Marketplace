@@ -7,10 +7,20 @@ x-airflow-env: &airflow-env
   AIRFLOW__CORE__DEFAULT_TIMEZONE: Europe/Paris
 
 x-airflow-common: &airflow-common
-  image: apache/airflow:2.10.5
-  environment: *airflow-env
+  build:
+    context: .
+    dockerfile: airflow/Dockerfile
+  env_file: .env
+  environment:
+    <<: *airflow-env
+    API_URL: http://api-marketplace:5000
+    PGHOST: postgres-dwh
+    PGPORT: "5432"
+    MINIO_ENDPOINT: http://minio:9000
+    PYTHONPATH: /opt/airflow/pipeline
   volumes:
     - ./airflow/dags:/opt/airflow/dags
+    - ./pipeline:/opt/airflow/pipeline:ro
     - airflow-logs:/opt/airflow/logs
 
 services:
@@ -20,7 +30,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports: ["5433:5432"]
+    ports:
+      - "5433:5432"
     volumes:
       - pg-data:/var/lib/postgresql
       - ./sql/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
@@ -35,7 +46,9 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    ports: ["9000:9000", "9001:9001"]
+    ports:
+      - "9000:9000"
+      - "9001:9001"
     volumes:
       - minio-data:/data
 
@@ -43,9 +56,14 @@ services:
     build: ./api
     environment:
       API_TOKEN: ${API_TOKEN}
-    ports: ["5000:5000"]
+    ports:
+      - "5000:5000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"
       interval: 10s
       retries: 10
 
@@ -57,10 +75,11 @@ services:
     environment:
       API_URL: http://api-marketplace:5000
       PGHOST: postgres-dwh
-      PGPORT: '5432'
+      PGPORT: "5432"
       MINIO_ENDPOINT: http://minio:9000
-      METRICS_PORT: '8000'
-    ports: ["8000:8000"]
+      METRICS_PORT: "8000"
+    ports:
+      - "8000:8000"
     depends_on:
       postgres-dwh:
         condition: service_healthy
@@ -72,39 +91,45 @@ services:
 
   metabase:
     image: metabase/metabase:v0.59.1
-    ports: ["3000:3000"]
+    ports:
+      - "3000:3000"
     volumes:
       - metabase-data:/metabase-data
     environment:
       MB_DB_FILE: /metabase-data/metabase.db
-    depends_on: [postgres-dwh]
+    depends_on:
+      - postgres-dwh
 
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.17.1
     environment:
       DATA_SOURCE_NAME: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-dwh:5432/${POSTGRES_DB}?sslmode=disable
-    depends_on: [postgres-dwh]
+    depends_on:
+      - postgres-dwh
 
   prometheus:
     image: prom/prometheus:v3.5.0
-    ports: ["9090:9090"]
+    ports:
+      - "9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
-    depends_on: [pipeline, postgres-exporter]
+    depends_on:
+      - pipeline
+      - postgres-exporter
 
   grafana:
     image: grafana/grafana:12.1.1
-    ports: ["3001:3000"]
+    ports:
+      - "3001:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
-    depends_on: [prometheus]
-
-  # APACHE AIRFLOW
+    depends_on:
+      - prometheus
 
   airflow-db:
     image: postgres:16
@@ -147,7 +172,8 @@ services:
     depends_on:
       airflow-init:
         condition: service_completed_successfully
-    ports: ["8080:8080"]
+    ports:
+      - "8080:8080"
     command: webserver
     restart: unless-stopped
 
@@ -156,6 +182,12 @@ services:
     depends_on:
       airflow-init:
         condition: service_completed_successfully
+      postgres-dwh:
+        condition: service_healthy
+      api-marketplace:
+        condition: service_healthy
+      minio:
+        condition: service_started
     command: scheduler
     restart: unless-stopped
 

@@ -112,24 +112,18 @@ def run(dt,replay=False):
     finally:DURATION.observe(time.monotonic()-start)
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('command',choices=['run','replay','backfill','serve']);parser.add_argument('--date');parser.add_argument('--days',type=int,default=7);parser.add_argument('--interval',type=int,default=86400);args=parser.parse_args()
-    if args.command=='serve':
-        start_http_server(int(os.getenv('METRICS_PORT','8000')))
-        LOG.info('Metrics available; automatic daily run enabled')
-        last=None
+    
+    if args.command == 'serve':
+        start_http_server(
+            int(os.getenv('METRICS_PORT', '8000'))
+        )
+        LOG.info("Metrics server started")
+
         while True:
-            today=date.today().isoformat()
-            if last!=today:
-                dt=(date.today()-timedelta(days=1)).isoformat()
-                try:
-                    run(dt)
-                except Exception:
-                    logging.exception(
-                        "Automatic pipeline failed for date=%s",
-                        dt
-                    )
-                else:
-                    last = today
-    elif args.command=='backfill':
+            time.sleep(60)
+
+    elif args.command == 'backfill':
+
         end=date.fromisoformat(args.date) if args.date else date.today()-timedelta(days=1)
         for i in reversed(range(args.days)):run((end-timedelta(days=i)).isoformat())
     else:run(args.date or (date.today()-timedelta(days=1)).isoformat(),args.command=='replay')
