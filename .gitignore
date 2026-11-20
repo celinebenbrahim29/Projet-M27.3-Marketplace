@@ -7,3 +7,4 @@ __pycache__/
 .venv/
 airflow/logs/
 airflow/plugins/__pycache__/
+*.log

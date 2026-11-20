@@ -1,10 +1,16 @@
 
+# Marketplace Analytics : API -> MinIO (raw) -> PostgreSQL (staging/dwh/analytics) -> Metabase.
+# Airflow orchestre le pipeline ; Prometheus + Grafana supervisent. Mots de passe : fichier .env.
+
+# Variables et paramètres communs aux services Airflow (évite de les répéter 4 fois).
 x-airflow-env: &airflow-env
   AIRFLOW__CORE__EXECUTOR: LocalExecutor
   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db:5432/airflow
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
   AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
   AIRFLOW__CORE__DEFAULT_TIMEZONE: Europe/Paris
+  # Connection `marketplace_api` lue par le Hook (host = URL de l'API, password = token).
+  AIRFLOW_CONN_MARKETPLACE_API: '{"conn_type": "http", "host": "http://api-marketplace:5000", "password": "${API_TOKEN}"}'
 
 x-airflow-common: &airflow-common
   build:
@@ -20,10 +26,14 @@ x-airflow-common: &airflow-common
     PYTHONPATH: /opt/airflow/pipeline
   volumes:
     - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/plugins:/opt/airflow/plugins:ro   # Hook MarketplaceAPIHook
     - ./pipeline:/opt/airflow/pipeline:ro
+    - ./tests:/opt/airflow/tests:ro               # tests du Hook et du DAG (voir README)
     - airflow-logs:/opt/airflow/logs
 
 services:
+  # Data Warehouse : schémas staging, dwh, analytics (créés par sql/001_schema.sql au 1er démarrage).
+  # Port hôte 5433 ; entre conteneurs, utiliser postgres-dwh:5432.
   postgres-dwh:
     image: postgres:18
     environment:
@@ -40,6 +50,7 @@ services:
       interval: 5s
       retries: 20
 
+  # Data lake : stocke les JSON bruts (bucket data-lake). Console web sur le port 9001.
   minio:
     image: ghcr.io/intikhab49/minio-from-source:latest
     command: server /data --console-address ':9001'
@@ -52,6 +63,7 @@ services:
     volumes:
       - minio-data:/data
 
+  # Source de données simulée (Flask), protégée par un token Bearer.
   api-marketplace:
     build: ./api
     environment:
@@ -67,6 +79,8 @@ services:
       interval: 10s
       retries: 10
 
+  # Code du pipeline. Reste actif pour exposer les métriques ; les chargements se lancent avec
+  # `docker compose run --rm pipeline python runner.py ...` (voir README).
   pipeline:
     build:
       context: .
@@ -89,6 +103,7 @@ services:
         condition: service_started
     command: ["python", "-u", "runner.py", "serve"]
 
+  # BI : dashboards métier sur le Data Warehouse. Ses dashboards sont conservés dans le volume metabase-data.
   metabase:
     image: metabase/metabase:v0.59.1
     ports:
@@ -100,6 +115,7 @@ services:
     depends_on:
       - postgres-dwh
 
+  # Supervision technique : postgres-exporter -> prometheus (collecte) -> grafana (graphiques).
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.17.1
     environment:
@@ -131,6 +147,7 @@ services:
     depends_on:
       - prometheus
 
+  # Orchestration : base de métadonnées d'Airflow, puis initialisation, webserver et scheduler.
   airflow-db:
     image: postgres:16
     environment:
@@ -145,6 +162,7 @@ services:
       timeout: 5s
       retries: 10
 
+  # Exécuté une fois : migre la base Airflow et crée l'utilisateur admin.
   airflow-init:
     <<: *airflow-common
     environment:
@@ -173,7 +191,7 @@ services:
       airflow-init:
         condition: service_completed_successfully
     ports:
-      - "8080:8080"
+      - "${AIRFLOW_PORT:-8080}:8080"
     command: webserver
     restart: unless-stopped
 
