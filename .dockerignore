@@ -1,0 +1,11 @@
+# Fichiers que Docker n'a pas besoin de recevoir lors d'un `docker compose build`.
+# Le contexte de build des images pipeline et airflow est la racine du projet.
+.git
+.env
+.env.*
+**/__pycache__
+**/*.pyc
+.pytest_cache
+README.md
+docs
+powerbi
